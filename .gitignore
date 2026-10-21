@@ -1,0 +1,13 @@
+# Personal viva study notes — never submit / never commit
+viva_notes.md
+
+# OS / editor noise
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# sqlmap output (if we use it) — can be large and machine-specific
+sqlmap-output/
+*.log

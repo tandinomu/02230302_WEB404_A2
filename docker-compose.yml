@@ -1,0 +1,27 @@
+# docker-compose.yml
+# Spins up DVWA (Damn Vulnerable Web Application) for LOCAL, offline SQLi practice.
+#
+# Why each line matters (useful for the viva):
+services:
+  dvwa:
+    # Pre-built intentionally-vulnerable app. It bundles Apache (PHP) + MySQL
+    # inside the single container, so we don't need a separate database service.
+    image: vulnerables/web-dvwa:latest
+
+    container_name: dvwa
+
+    # The DVWA image is built for amd64. On an Apple Silicon (arm64) Mac,
+    # Docker runs it under emulation. Stating the platform silences the
+    # "platform does not match" warning and makes the setup reproducible.
+    platform: linux/amd64
+
+    ports:
+      # "127.0.0.1:4280:80" means: expose the container's port 80 ONLY on the
+      # loopback address of THIS machine, as localhost:4280.
+      # (We use 4280 because port 8080 was already taken by another app.)
+      # Binding to 127.0.0.1 (not 0.0.0.0) is the key ethical control: the
+      # vulnerable app is NOT reachable from the LAN/internet, only from my laptop.
+      - "127.0.0.1:4280:80"
+
+    # Restart if it crashes, but not if I deliberately stop it.
+    restart: unless-stopped
