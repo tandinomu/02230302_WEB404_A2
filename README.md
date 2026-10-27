@@ -8,6 +8,29 @@
 
 ---
 
+## Overview — what this assignment does and how
+
+This assignment attacks and then defends a web application against **SQL
+Injection (SQLi)**.
+
+The approach has four stages:
+
+1. **Set up a vulnerable target** — DVWA running locally in Docker, bound to
+   `127.0.0.1`.
+2. **Attack it** — demonstrate five types of SQL injection (in-band always-true,
+   UNION-based, error-based, blind boolean-based, blind time-based), plus the
+   automated tool `sqlmap`.
+3. **Compare security levels** — show how DVWA's Low/Medium/High defences change
+   the attack but never fix the root cause, and how "Impossible" finally does.
+4. **Prevent it** — fix the flaw with parameterized queries (prepared
+   statements) and show the same attack failing, backed by a defence-in-depth
+   checklist.
+
+The single root cause throughout: **user input concatenated directly into a SQL
+query.**
+
+---
+
 ## 1. Introduction
 
 ### What is SQL Injection?
@@ -120,7 +143,7 @@ A `UNION` appends a second `SELECT`; both must return the **same number of colum
 ' UNION SELECT user, password FROM users #
 ```
 **Why it works (one line):** the first `SELECT` matches nothing (`user_id = ''`), so the
-page displays purely our second `SELECT` — the credentials table.
+page displays purely the second `SELECT` — the credentials table.
 
 **What it returned:**
 ```
@@ -142,15 +165,15 @@ trivially cracked — see §6. Schema discovery via `information_schema` is also
 
 ### 3.3 Error-based — Make the database leak via an error message
 
-At Low security DVWA prints the raw database error (`or die(mysqli_error())`). We feed
-a function that fails on purpose but carries our data in the error text.
+At Low security DVWA prints the raw database error (`or die(mysqli_error())`). The attack
+feeds a function that fails on purpose but carries the injected data in the error text.
 
 **Payload**
 ```
 ' AND extractvalue(1,concat(0x7e,(SELECT password FROM users WHERE user_id=1))) #
 ```
 **Why it works (one line):** `extractvalue()` expects valid XPath; `0x7e` (`~`) makes it
-invalid, so MySQL aborts and **quotes our data back inside the error message**.
+invalid, so MySQL aborts and **quotes the injected data back inside the error message**.
 
 **What it returned:**
 ```
@@ -178,8 +201,8 @@ says **"User ID exists"** (true) or **"User ID is MISSING"** (false) — a 1-bit
 1' AND substring(database(),1,1)='d' #             → exists  (1st char = d)
 1' AND substring((SELECT password FROM users WHERE user_id=1),1,1)='5' #   → exists
 ```
-**Why it works (one line):** we can't see the data, but we make the page's **behaviour**
-depend on it; chaining enough yes/no questions reconstructs any value character by
+**Why it works (one line):** the data is not visible, but the page's **behaviour** is made
+to depend on it; chaining enough yes/no questions reconstructs any value character by
 character.
 
 > [SCREENSHOT: blind boolean TRUE ("exists") — `screenshots/05a-blind-bool-true.png`]
@@ -236,7 +259,7 @@ Both Medium and High still leaked all five password hashes (see
 > [SCREENSHOT (optional): High popup "Click here to change your ID" with UNION payload — `screenshots/07b-high-browser.png`]
 
 ### 4.1 Automated attack with sqlmap (demonstration)
-`sqlmap` is the industry-standard automated SQLi tool. Pointed at the Low page with our
+`sqlmap` is the industry-standard automated SQLi tool. Pointed at the Low page with the
 session cookie (`tools/sqlmap_demo.sh`), it:
 1. sent ~182 probes and found `id` injectable;
 2. automatically confirmed **the same four techniques** demonstrated by hand
