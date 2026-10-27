@@ -372,3 +372,13 @@ tools/sqlmap_demo.sh        automated attack with sqlmap
 tools/prevention_demo.sh    vulnerable vs secure demo (Docker PHP)
 screenshots/                evidence (see checklist)
 ```
+
+---
+
+## References
+
+- OWASP Top 10:2021, A03 Injection, https://owasp.org/Top10/A03_2021-Injection/
+- OWASP SQL Injection Prevention Cheat Sheet, https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+- CWE-89: Improper Neutralization of Special Elements used in an SQL Command, https://cwe.mitre.org/data/definitions/89.html
+- DVWA (Damn Vulnerable Web Application), https://github.com/digininja/DVWA
+- sqlmap, https://sqlmap.org/
