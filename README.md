@@ -1,4 +1,4 @@
-# WEB404 Secure Coding Practices — Practical Assignment 2
+# WEB404 Secure Coding Practices: Practical Assignment 2
 
 ## SQL Injection: Attacking and Defending a Vulnerable Web Application
 
@@ -36,7 +36,7 @@ SQL injection happens when an attacker types input that is not plain data but ex
 - The attacker can change or delete data (`UPDATE`, `DELETE`, `DROP`).
 - A login check can be fooled into letting someone in without the right password.
 
-SQL injection sits under **A03:2021 – Injection** in the [OWASP Top 10](https://owasp.org/Top10/A03_2021-Injection/). Injection has stayed near the top of that list for over a decade because the root cause, trusting user input inside a command, is so easy to write by accident.
+SQL injection sits under **A03:2021 Injection** in the [OWASP Top 10](https://owasp.org/Top10/A03_2021-Injection/). Injection has stayed near the top of that list for over a decade because the root cause, trusting user input inside a command, is so easy to write by accident.
 
 ---
 
@@ -268,11 +268,11 @@ With the attack input `admin' --`, the `--` comments out the password check in t
 
 Parameterized queries are the fix. These extra layers limit the damage if something is still missed:
 
-- **Least-privilege database account** — the app should log in with an account that can only do what it needs (for example `SELECT` on certain tables), never `DROP` or reach other databases. If an injection does slip through, it can do far less.
-- **Input validation / allow-listing** — reject input that is the wrong type, such as a user ID that is not a whole number. A helpful extra layer, not a replacement for parameterization.
-- **Safe error handling** — never show raw database errors to users; this alone kills the error-based attack above.
-- **Strong password hashing** — store passwords with a slow, salted algorithm (bcrypt or Argon2), not unsalted MD5, so a leaked table is not cracked instantly.
-- **Web Application Firewall** — filters common attack patterns at the edge, but it can be bypassed, so it supports the fix rather than replacing it.
+- **Least-privilege database account**: the app should log in with an account that can only do what it needs (for example `SELECT` on certain tables), never `DROP` or reach other databases. If an injection does slip through, it can do far less.
+- **Input validation / allow-listing**: reject input that is the wrong type, such as a user ID that is not a whole number. A helpful extra layer, not a replacement for parameterization.
+- **Safe error handling**: never show raw database errors to users; this alone kills the error-based attack above.
+- **Strong password hashing**: store passwords with a slow, salted algorithm (bcrypt or Argon2), not unsalted MD5, so a leaked table is not cracked instantly.
+- **Web Application Firewall**: filters common attack patterns at the edge, but it can be bypassed, so it supports the fix rather than replacing it.
 
 ---
 
@@ -286,8 +286,8 @@ The fix is simple and decisive: parameterized queries keep the SQL code and the 
 
 ## References
 
-- OWASP Top 10:2021, A03 Injection — https://owasp.org/Top10/A03_2021-Injection/
-- OWASP SQL Injection Prevention Cheat Sheet — https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
-- CWE-89: Improper Neutralization of Special Elements used in an SQL Command — https://cwe.mitre.org/data/definitions/89.html
-- DVWA (Damn Vulnerable Web Application) — https://github.com/digininja/DVWA
-- sqlmap — https://sqlmap.org/
+- OWASP Top 10:2021, A03 Injection: https://owasp.org/Top10/A03_2021-Injection/
+- OWASP SQL Injection Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+- CWE-89: Improper Neutralization of Special Elements used in an SQL Command: https://cwe.mitre.org/data/definitions/89.html
+- DVWA (Damn Vulnerable Web Application): https://github.com/digininja/DVWA
+- sqlmap: https://sqlmap.org/
