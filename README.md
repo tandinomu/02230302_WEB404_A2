@@ -1,4 +1,5 @@
-# WEB404 Secure Coding Practices: Practical Assignment 2
+# WEB404 Secure Coding Practices — Practical Assignment 2
+
 ## SQL Injection: Attacking and Defending a Vulnerable Web Application
 
 **Student ID:** 02230302
@@ -8,144 +9,98 @@
 
 ---
 
-## Overview: what this assignment does and how
+## Overview
 
-This assignment attacks and then defends a web application against **SQL
-Injection (SQLi)**.
+This assignment attacks a web application with SQL injection, then defends it.
 
-The approach has four stages:
+The work was done in four stages, and this report follows the same order:
 
-1. **Set up a vulnerable target**: DVWA running locally in Docker, bound to
-   `127.0.0.1`.
-2. **Attack it**: demonstrate five types of SQL injection (in-band always-true,
-   UNION-based, error-based, blind boolean-based, blind time-based), plus the
-   automated tool `sqlmap`.
-3. **Compare security levels**: show how DVWA's Low/Medium/High defences change
-   the attack but never fix the root cause, and how "Impossible" finally does.
-4. **Prevent it**: fix the flaw with parameterized queries (prepared
-   statements) and show the same attack failing, backed by a defence-in-depth
-   checklist.
+1. **Set up a safe target.** DVWA is run locally in Docker, reachable only from this laptop.
+2. **Attack it.** Five kinds of SQL injection are shown by hand, then the automated tool `sqlmap` repeats the whole thing.
+3. **Compare security levels.** DVWA's Low, Medium and High settings each add a partial defence. The report shows how each one changes the attack but never stops it, and how the "Impossible" setting finally does.
+4. **Prevent it.** The flaw is fixed with a parameterized query (a prepared statement), and the same attack is shown failing against the fixed code.
 
-The single root cause throughout: **user input concatenated directly into a SQL
-query.**
+One idea runs through the whole report: every attack below works because of a single mistake, **user input being glued straight into a SQL query**.
 
 ---
 
-## 1. Introduction
+## What is SQL injection?
 
-### What is SQL Injection?
-**SQL Injection (SQLi)** is a vulnerability that occurs when an application builds a
-database query by **mixing untrusted user input directly into the SQL text**. Because
-the input and the SQL commands travel in the same string, a crafted input can change
-the **meaning** of the query, so the database can no longer tell the developer's
-instructions apart from the attacker's data.
+A web application talks to its database using SQL queries. A query is just a sentence like "give me the user whose ID is 1". The problem starts when the application builds that sentence by pasting whatever the user typed directly into it.
 
-A single input box expecting a number like `1` can be turned into a command that
-returns every user, dumps password hashes, or pauses the server on command.
+SQL injection happens when an attacker types input that is not plain data but extra SQL. Because the user's input and the application's own SQL are in the same text string, the database cannot tell them apart. It runs the attacker's text as if the developer had written it.
 
-### Why is it dangerous?
-- **Confidentiality:** attackers can read any data the database account can see
-  (usernames, password hashes, personal data).
-- **Integrity:** data can be modified or deleted (`UPDATE`, `DELETE`, `DROP`).
-- **Authentication bypass:** login checks can be fooled into granting access without
-  a valid password.
-- **Full compromise:** in some configurations it leads to command execution on the
-  server.
+**Why it is dangerous:**
 
-### OWASP reference
-SQL Injection belongs to **A03:2021, Injection** in the
-[OWASP Top 10 (2021)](https://owasp.org/Top10/A03_2021-Injection/). Injection has been
-a top-ranked web risk for over a decade precisely because the root cause, trusting
-user input inside a command, is so easy to introduce.
+- The attacker can read any data the database account can see, including usernames and password hashes.
+- The attacker can change or delete data (`UPDATE`, `DELETE`, `DROP`).
+- A login check can be fooled into letting someone in without the right password.
+
+SQL injection sits under **A03:2021 – Injection** in the [OWASP Top 10](https://owasp.org/Top10/A03_2021-Injection/). Injection has stayed near the top of that list for over a decade because the root cause, trusting user input inside a command, is so easy to write by accident.
 
 ---
 
-## 2. Lab Setup and Ethical Considerations
+## Lab setup and ethical considerations
 
-### Tools
-| Tool | Purpose |
-|------|---------|
-| Docker + docker-compose | Run DVWA in an isolated container |
-| DVWA (`vulnerables/web-dvwa`) | The intentionally vulnerable target |
-| `curl` | Send crafted requests; clean terminal evidence |
-| `sqlmap` | Automated SQLi tool (demonstration) |
-| Docker `php:8.3-cli` | Run the standalone prevention demo |
+The target is **DVWA**, an application that is deliberately full of security holes so people can practise on it safely. It is run in Docker using the `docker-compose.yml` in this folder:
 
-### How to run the lab
 ```bash
-docker compose up -d          # start DVWA on http://127.0.0.1:4280
+docker compose up -d        # starts DVWA on http://127.0.0.1:4280
 ```
-Then in the browser:
-1. Open **http://127.0.0.1:4280** and log in with `admin` / `password`.
-2. Click **Create / Reset Database** (builds the `users` table).
-3. Set **DVWA Security** to the level being tested (Low, Medium, High).
 
-> [SCREENSHOT: DVWA home page, logged in, security level = Low, `screenshots/01-dvwa-setup-low.png`]
+**What this does:** starts the vulnerable app in a container and publishes it at `http://127.0.0.1:4280`.
 
-### Ethical considerations
-- **Everything runs locally.** In `docker-compose.yml` the port is published as
-  `127.0.0.1:4280:80`. Binding to the **loopback address** means the vulnerable app is
-  reachable **only from this laptop**, never from the local network or the internet.
-- **The target is a purpose-built practice app** (DVWA), used with permission by design.
-- **No external system is ever touched.** SQL injection against a system you do not own
-  or have written authorization to test is illegal and unethical. This lab exists to
-  learn how the attacks work *so they can be prevented*.
+The key line in `docker-compose.yml` publishes the app as `127.0.0.1:4280:80`. Binding to `127.0.0.1` (the loopback address) means the vulnerable app is reachable **only from this laptop**, never from the local network or the internet. This is the main ethical control.
+
+After starting it, log in with `admin` / `password`, click **Create / Reset Database** to build the `users` table, then set **DVWA Security** to the level being tested.
+
+![DVWA logged in, SQL Injection page, security level set to Low](screenshots/01-dvwa-setup-low.png)
+
+**Ethics in short:** everything runs on one machine against a practice app built to be attacked. No real or third-party system is ever touched. Running these attacks against a system you do not own or have written permission to test is illegal, so the whole point of the lab is to learn how the attacks work in order to prevent them.
 
 ---
 
-## 3. SQL Injection Attacks (Low Security)
+## The attacks (Low security)
 
-DVWA's **SQL Injection** page has one input, "User ID". At Low security the code
-(`dvwa_source/sqli_low.php`) builds the query like this:
+DVWA's SQL Injection page has one input box, "User ID". At Low security the code (`dvwa_source/sqli_low.php`) builds the query like this:
 
 ```php
 $id = $_REQUEST[ 'id' ];
 $query = "SELECT first_name, last_name FROM users WHERE user_id = '$id';";
 ```
 
-The input `$id` is dropped **between single quotes with no checking**, the single flaw
-behind every attack below. Normal use (`id = 1`) returns one user's name.
+**What this does:** drops whatever the user typed straight between two single quotes, with no checking at all. That one line is the flaw behind every attack in this section. Typing `1` normally returns one user's name; the attacks below abuse the same box.
 
----
-
-### 3.1 In-band: Always-true / Authentication bypass
+### 1. In-band / always-true
 
 **Payload**
+
 ```
 ' OR '1'='1
 ```
-**Resulting query**
-```sql
-SELECT first_name, last_name FROM users WHERE user_id = '' OR '1'='1';
-```
-**Why it works (one line):** the `'` closes the intended string early and `OR '1'='1'`
-adds a condition that is **always true**, so the `WHERE` matches **every row**.
 
-**What it returned:** all 5 users (admin, Gordon Brown, Hack Me, Pablo Picasso,
-Bob Smith). "In-band" means the stolen data returns through the normal page response.
+**What this does:** the first `'` closes the quote early, and `OR '1'='1'` adds a condition that is always true, so the `WHERE` now matches every row instead of one. "In-band" means the stolen data comes straight back on the normal page.
 
-> [SCREENSHOT: `' OR '1'='1` returning all users, `screenshots/02-inband-always-true.png`]
+Because `'1'='1'` is always true, the database returns every row instead of one.
 
----
+**What it returned:** all five users (admin, Gordon Brown, Hack Me, Pablo Picasso, Bob Smith) instead of one.
 
-### 3.2 UNION-based: Extract data from other tables
+![The ' OR '1'='1 payload returning all five users](screenshots/02-inband-always-true.png)
 
-A `UNION` appends a second `SELECT`; both must return the **same number of columns**.
+### 2. UNION-based
 
-**Step A, find the column count**
-```
-' ORDER BY 1 #     → ok
-' ORDER BY 2 #     → ok
-' ORDER BY 3 #     → ERROR  ⇒ the query has 2 columns
-```
-**Step B, extract usernames + password hashes**
+A `UNION` bolts a second `SELECT` onto the first, so you can pull data out of other tables. Both `SELECT`s must return the same number of columns; a quick test with `ORDER BY` showed this query has two columns.
+
+**Payload**
+
 ```
 ' UNION SELECT user, password FROM users #
 ```
-**Why it works (one line):** the first `SELECT` matches nothing (`user_id = ''`), so the
-page displays purely the second `SELECT`, the credentials table.
+
+**What this does:** the first `SELECT` matches nothing (`user_id = ''`), so the page shows only the second `SELECT`, which is the username and password of every account. The `#` comments out the leftover `';` that DVWA adds on the end.
 
 **What it returned:**
+
 ```
 admin   : 5f4dcc3b5aa765d61d8327deb882cf99
 gordonb : e99a18c428cb38d5f260853678922e03
@@ -153,78 +108,66 @@ gordonb : e99a18c428cb38d5f260853678922e03
 pablo   : 0d107d09f5bbe40cade3de5c71e9e9b7
 smithy  : 5f4dcc3b5aa765d61d8327deb882cf99
 ```
-These are **unsalted MD5** hashes (e.g. `5f4dcc3b…` = the word `password`), so they are
-trivially cracked (see §6). Schema discovery via `information_schema` is also possible:
-```
-' UNION SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema=database() #
-```
 
-> [SCREENSHOT: UNION dump of usernames and hashes, `screenshots/03-union-password-hashes.png`]
+These are **unsalted MD5** hashes. They are so weak that `5f4dcc3b...` is just the word `password`, and all of them are cracked later by `sqlmap`.
 
----
+![UNION attack dumping every username and password hash](screenshots/03-union-password-hashes.png)
 
-### 3.3 Error-based: Make the database leak via an error message
+### 3. Error-based
 
-At Low security DVWA prints the raw database error (`or die(mysqli_error())`). The attack
-feeds a function that fails on purpose but carries the injected data in the error text.
+At Low security DVWA prints the raw database error straight to the page. This attack deliberately causes an error that carries the stolen data inside the error text.
 
 **Payload**
+
 ```
 ' AND extractvalue(1,concat(0x7e,(SELECT password FROM users WHERE user_id=1))) #
 ```
-**Why it works (one line):** `extractvalue()` expects valid XPath; `0x7e` (`~`) makes it
-invalid, so MySQL aborts and **quotes the injected data back inside the error message**.
+
+**What this does:** `extractvalue()` expects valid XPath. Starting the value with `0x7e` (the `~` character) makes it invalid, so MySQL gives up and prints an error, and that error quotes our stolen data back to us.
 
 **What it returned:**
+
 ```
 XPATH syntax error: '~5f4dcc3b5aa765d61d8327deb882cf99'
 ```
-(Note: `extractvalue` prints ~32 characters, so longer values need `substring()`.)
 
-> [SCREENSHOT: XPATH error leaking the admin hash, `screenshots/04-error-based-extractvalue.png`]
+That is the admin password hash, leaked through the error message. (`extractvalue` only shows about 32 characters at a time, so longer values are read in pieces with `substring()`.)
 
----
+![XPATH error message leaking the admin password hash](screenshots/04-error-based-extractvalue.png)
 
-### 3.4 Blind boolean-based: Infer data from TRUE/FALSE page differences
+### 4. Blind boolean-based
 
-On the **SQL Injection (Blind)** page, results and errors are hidden. The page only ever
-says **"User ID exists"** (true) or **"User ID is MISSING"** (false), a 1-bit oracle.
+On the separate **SQL Injection (Blind)** page, no data and no errors are shown. The page only ever says **"User ID exists"** (true) or **"User ID is MISSING"** (false). That single true/false answer is enough to leak data one question at a time.
 
-**Confirm the oracle**
+**First, confirm it reacts to true and false**
+
 ```
-1' AND '1'='1     → exists  (TRUE)
-1' AND '1'='2     → missing (FALSE)
+1' AND '1'='1     -> exists  (TRUE)
+1' AND '1'='2     -> missing (FALSE)
 ```
-**Extract data one character at a time**
+
+**What this does:** proves the page's answer changes depending on a condition we control. "exists" for a true condition, "missing" for a false one.
+
+![Blind boolean: a TRUE condition shows "User ID exists"](screenshots/05a-blind-bool-true.png)
+
+![Blind boolean: a FALSE condition shows "User ID is MISSING"](screenshots/05b-blind-bool-false.png)
+
+From there, the data is rebuilt one character at a time: each request asks a yes/no question about a hidden value (for example, "is the first letter of the database name a `d`?"), and stringing enough of them together recovers the whole value.
+
+### 5. Blind time-based
+
+Sometimes even the text on the page never changes, so there is no true/false answer to read. In that case **time** becomes the signal: make the database pause only when the answer is yes.
+
+**Payload**
+
 ```
-1' AND length(database())=4 #                      → exists  (name is 4 chars)
-1' AND substring(database(),1,1)='d' #             → exists  (1st char = d)
-1' AND substring((SELECT password FROM users WHERE user_id=1),1,1)='5' #   → exists
+1' AND IF(1=1, SLEEP(3), 0) #
 ```
-**Why it works (one line):** the data is not visible, but the page's **behaviour** is made
-to depend on it; chaining enough yes/no questions reconstructs any value character by
-character.
 
-> [SCREENSHOT: blind boolean TRUE ("exists"), `screenshots/05a-blind-bool-true.png`]
-> [SCREENSHOT: blind boolean FALSE ("missing"), `screenshots/05b-blind-bool-false.png`]
+**What this does:** `IF(condition, SLEEP(3), 0)` makes the database pause for 3 seconds only when the condition is true, so a slow reply means "yes" and an instant reply means "no". Swapping in a real question (such as a character test) and timing the reply leaks the answer one character at a time.
 
----
+This was run from the terminal with `tools/sqli_time_test.sh` so the exact timing is visible:
 
-### 3.5 Blind time-based: Infer data from a response delay
-
-When even the text is identical, **time** becomes the oracle: delay only if a condition
-is true.
-
-**Payloads**
-```
-1' AND IF(1=1, SLEEP(3), 0) #    → ~3s delay (TRUE)
-1' AND IF(1=2, SLEEP(3), 0) #    → instant   (FALSE)
-1' AND IF(substring(database(),1,1)='d', SLEEP(3), 0) #   → ~3s ⇒ 1st char is 'd'
-```
-**Why it works (one line):** `IF(condition, SLEEP(3), 0)` only sleeps when the condition
-is true, so the **response time itself** leaks the answer.
-
-**Measured result** (from `tools/sqli_time_test.sh`):
 ```
 FALSE condition : 0.017s
 TRUE  condition : 3.016s
@@ -232,79 +175,82 @@ TRUE  condition : 3.016s
 1st char = 'x'? : 0.006s   (FALSE)
 ```
 
-> [SCREENSHOT: terminal timing, FALSE instant vs TRUE ~3s, `screenshots/06-blind-time-based.png`]
+![Terminal timing: FALSE replies instantly, TRUE takes about 3 seconds](screenshots/06-blind-time-based.png)
 
 ---
 
-## 4. Security Levels Compared (Low / Medium / High / Impossible)
+## Security levels
 
-The key insight: at Medium and High, DVWA adds **partial defences** but never fixes the
-real bug (the query is still built by concatenating strings). Only "Impossible" fixes it.
+DVWA can be set to Low, Medium, High or Impossible. The point of this stage is that Medium and High add **partial** defences, but the query is still built by gluing strings together, so the data still leaks. Only Impossible changes how the query is built.
 
-| Level | Defence added | Why it still fails | Attack used |
-|-------|--------------|--------------------|-------------|
-| **Low** | none | query is `'$id'`, raw | `' OR '1'='1` |
-| **Medium** | dropdown (client-side) + `mysqli_real_escape_string()`; id used **unquoted** | escaping only neutralises quotes, but an unquoted numeric context needs none; the dropdown is client-side only (bypassed with `curl`) | `1 UNION SELECT user, password FROM users #` |
-| **High** | input on a **separate page** (session) + `LIMIT 1` | query is still `'$id'`; `#` comments out `LIMIT 1`; separate page only hampers automated tools | `' UNION SELECT user, password FROM users #` |
-| **Impossible** | **prepared statement** (PDO `bindParam`, `PARAM_INT`) + `is_numeric()` + anti-CSRF token | input can never become SQL code | **attack fails** |
+The same goal, dump every username and hash, was run against Medium and High using `tools/sqli_levels_demo.sh`:
 
-Both Medium and High still leaked all five password hashes (see
-`tools/sqli_levels_demo.sh`).
+![Medium and High both still leak every username and hash](screenshots/07-medium-high-bypass.png)
 
-**Viva note, Medium hex trick:** if an attack at Medium needs a string literal (which
-`mysqli_real_escape_string` would escape), write it as hex instead, e.g. `0x7573657273`
-= `users`, avoiding quotes entirely.
+| Level | Defence it adds | Why it still fails | Payload used |
+|-------|-----------------|--------------------|--------------|
+| **Low** | none | the input goes straight into the query | `' OR '1'='1` |
+| **Medium** | a dropdown instead of a text box, plus some quote-escaping | the id is used without quotes, so no quotes are needed to attack, and the dropdown is only enforced in the browser (`curl` ignores it) | `1 UNION SELECT user, password FROM users #` |
+| **High** | the id is entered on a separate page, plus `LIMIT 1` | the query is still built by pasting the input in, and `#` comments out the `LIMIT 1` | `' UNION SELECT user, password FROM users #` |
+| **Impossible** | a prepared statement, plus a number check and a security token | the input can never become SQL code | **attack fails** |
 
-> [SCREENSHOT: terminal output of `sqli_levels_demo.sh`, both levels leak hashes, `screenshots/07-medium-high-bypass.png`]
-> [SCREENSHOT (optional): High popup "Click here to change your ID" with UNION payload, `screenshots/07b-high-browser.png`]
-
-### 4.1 Automated attack with sqlmap (demonstration)
-`sqlmap` is the industry-standard automated SQLi tool. Pointed at the Low page with the
-session cookie (`tools/sqlmap_demo.sh`), it:
-1. sent ~182 probes and found `id` injectable;
-2. automatically confirmed **the same four techniques** demonstrated by hand
-   (boolean-blind, error-based, time-based, UNION);
-3. fingerprinted the stack (MariaDB / Apache 2.4 / Debian);
-4. dumped the `users` table and **cracked the unsalted MD5 hashes** with its wordlist:
-
-```
-admin : password      gordonb : abc123     1337 : charley
-pablo : letmein        smithy  : password
-```
-
-> [SCREENSHOT: sqlmap detecting the 4 injection types, `screenshots/08a-sqlmap-detect.png`]
-> [SCREENSHOT: sqlmap dumped + cracked users table, `screenshots/08b-sqlmap-dump.png`]
+**What this shows:** Medium and High change how the attack has to be written, but both still leak all five hashes. The defences treat symptoms; only the prepared statement at Impossible fixes the cause.
 
 ---
 
-## 5. Prevention
+## Automated attack with sqlmap
 
-### 5.1 DVWA's own code: vulnerable vs secure
-**Vulnerable (`dvwa_source/sqli_low.php`)**, input concatenated into SQL:
-```php
-$id = $_REQUEST[ 'id' ];
-$query = "SELECT first_name, last_name FROM users WHERE user_id = '$id';";
+`sqlmap` is the industry-standard tool that automates everything above. Pointed at the Low page with the logged-in session cookie (`tools/sqlmap_demo.sh`), it:
+
+1. sent many test requests and found the `id` parameter injectable;
+2. confirmed the same techniques done by hand (boolean-blind, error-based, time-based and UNION);
+3. fingerprinted the stack (MariaDB, Apache, Debian);
+4. dumped the `users` table and cracked the unsalted MD5 hashes with its own wordlist.
+
+```bash
+sqlmap -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1&Submit=Submit" \
+  --cookie="PHPSESSID=<session>; security=low" \
+  --batch --flush-session \
+  -D dvwa -T users --dump
 ```
 
-**Secure (`dvwa_source/sqli_impossible.php`)**, a parameterized query:
+**What this does:** `-u` is the injectable URL, `--cookie` passes the logged-in session and the Low security level, `--batch` answers all prompts automatically, and `-D dvwa -T users --dump` pulls the whole `users` table out of the `dvwa` database.
+
+![sqlmap detecting all four injection types on the id parameter](screenshots/08a-sqlmap-detect.png)
+
+The cracked result (saved in `sqlmap-output/`):
+
+```
+admin : password      gordonb : abc123      1337 : charley
+pablo : letmein       smithy  : password
+```
+
+![sqlmap dumping and cracking the users table](screenshots/08b-sqlmap-dump.png)
+
+**What this shows:** once a single parameter is injectable, pulling and cracking the whole user table is routine and takes one command.
+
+---
+
+## Prevention
+
+### The real fix: parameterized queries
+
+The fix is to stop building the query by pasting input into it. Instead, the SQL is written with a **placeholder**, and the input is handed to the database separately as data. DVWA's own "Impossible" code (`dvwa_source/sqli_impossible.php`) does exactly this:
+
 ```php
-if (is_numeric($id)) {                                 // 1. validate input type
+if (is_numeric($id)) {                                   // 1. check it is a number
     $data = $db->prepare(
         'SELECT first_name, last_name FROM users WHERE user_id = (:id) LIMIT 1;');
-    $data->bindParam(':id', $id, PDO::PARAM_INT);      // 2. input bound as DATA
+    $data->bindParam(':id', $id, PDO::PARAM_INT);        // 2. input attached as DATA
     $data->execute();
 }
 ```
-**The difference:** in the secure version the SQL text is fixed and contains only a
-**placeholder** `:id`. The input is attached afterwards as a typed value, so it can never
-be parsed as SQL. (It also validates with `is_numeric` and adds an anti-CSRF token.)
 
-### 5.2 Standalone demonstration (this folder)
-`prevention/vulnerable.php` and `prevention/secure.php` implement the **same** login
-check, one with string concatenation, one with a prepared statement. Run both with:
-```bash
-bash tools/prevention_demo.sh
-```
+**What this does:** the SQL text is fixed and contains only the placeholder `:id`. The database reads and plans the query **before** the user's value is attached, so that value can only ever be treated as a number to look up, never as SQL to run.
+
+### Side-by-side demo in this folder
+
+`prevention/vulnerable.php` and `prevention/secure.php` are the same login check written two ways: one pastes the input into the SQL, the other uses a prepared statement. They were run together with `tools/prevention_demo.sh`:
 
 | Input | `vulnerable.php` | `secure.php` |
 |-------|------------------|--------------|
@@ -312,73 +258,36 @@ bash tools/prevention_demo.sh
 | `admin' --` / wrong password | **GRANTED (bypassed)** | **DENIED** |
 | `' OR '1'='1' --` / anything | **GRANTED (bypassed)** | **DENIED** |
 
-The vulnerable query becomes:
-```sql
-SELECT * FROM users WHERE username = 'admin' --' AND password = 'wrongpass'
-```
-`--` comments out the password check. In `secure.php` the identical input is bound as
-data (`username=[admin' --]`), matches no user, and is denied.
+With the attack input `admin' --`, the `--` comments out the password check in the vulnerable version, so the attacker is logged in as admin without a password. In `secure.php` the identical text is treated as data, matches no real user, and access is denied.
 
-> [SCREENSHOT: `prevention_demo.sh` output, GRANTED on vulnerable, DENIED on secure, `screenshots/09-prevention-demo.png`]
+![prevention_demo.sh: vulnerable code GRANTS the bypass, secure code DENIES it](screenshots/09-prevention-demo.png)
 
-### 5.3 Defence-in-depth checklist
-1. **Parameterized queries / prepared statements** *(primary fix)*: separate code from
-   data so input can never alter query structure. Use these everywhere; avoid building
-   SQL by string concatenation.
-2. **Least-privilege database account**: the app should connect with an account that can
-   only do what it needs (e.g. `SELECT`/`INSERT` on specific tables, never `DROP` or
-   access to other databases). Limits the blast radius if injection still occurs.
-3. **Input validation / allow-listing**: reject input that doesn't fit the expected type
-   or format (e.g. a user ID must be an integer). A secondary layer, not a replacement
-   for parameterization.
-4. **Safe error handling**: never show raw database errors to users (kills error-based
-   SQLi and avoids leaking schema).
-5. **Proper password storage**: hash with a slow, salted algorithm (bcrypt/Argon2), not
-   unsalted MD5, so a leaked table is not instantly cracked.
-6. **Web Application Firewall (WAF)**: filters common injection patterns at the network
-   edge. Useful defence-in-depth, but **not** a substitute for fixing the code (filters
-   can be bypassed, e.g. with encoding).
+**What this shows:** the exact same attack that breaks into `vulnerable.php` does nothing to `secure.php`. Only the query-building method changed.
+
+### Defence in depth
+
+Parameterized queries are the fix. These extra layers limit the damage if something is still missed:
+
+- **Least-privilege database account** — the app should log in with an account that can only do what it needs (for example `SELECT` on certain tables), never `DROP` or reach other databases. If an injection does slip through, it can do far less.
+- **Input validation / allow-listing** — reject input that is the wrong type, such as a user ID that is not a whole number. A helpful extra layer, not a replacement for parameterization.
+- **Safe error handling** — never show raw database errors to users; this alone kills the error-based attack above.
+- **Strong password hashing** — store passwords with a slow, salted algorithm (bcrypt or Argon2), not unsalted MD5, so a leaked table is not cracked instantly.
+- **Web Application Firewall** — filters common attack patterns at the edge, but it can be bypassed, so it supports the fix rather than replacing it.
 
 ---
 
-## 6. Conclusion
+## Conclusion
 
-This lab set up DVWA locally and demonstrated five types of SQL injection, in-band
-always-true, UNION-based, error-based, blind boolean-based, and blind time-based, all
-rooted in a single flaw: **user input concatenated directly into a SQL query**. Raising
-DVWA's security level showed that partial defences (input escaping, client-side
-dropdowns, `LIMIT 1`, hiding the input field) **change the attack but do not stop it**,
-because they never address that root cause. `sqlmap` showed how routine the whole process
-becomes once a parameter is injectable.
+This lab set up DVWA locally and showed five kinds of SQL injection, in-band always-true, UNION-based, error-based, blind boolean and blind time-based, all caused by the same single flaw: user input pasted straight into a SQL query. Raising DVWA's security level showed that partial defences such as escaping, client-side dropdowns and `LIMIT 1` change how the attack is written but do not stop it, because they never remove that root cause. `sqlmap` showed how quick and routine the whole process is once one parameter is injectable.
 
-The fix is decisive and simple: **parameterized queries** separate SQL code from user
-data, so input can only ever be a value, demonstrated by the `secure.php` example, where
-the identical attack that bypassed `vulnerable.php` is denied. Combined with
-least-privilege database accounts, input validation, safe error handling, strong password
-hashing, and a WAF for defence-in-depth, SQL injection is a thoroughly solved problem in
-code that is written correctly.
-
----
-
-## Appendix: Repository contents
-```
-docker-compose.yml          DVWA on 127.0.0.1:4280
-dvwa_source/                DVWA's SQLi source (low/medium/high/impossible)
-prevention/vulnerable.php   insecure login (string concatenation)
-prevention/secure.php       secure login (prepared statement)
-tools/sqli_time_test.sh     blind time-based demo (curl)
-tools/sqli_levels_demo.sh   medium/high bypass demo (curl)
-tools/sqlmap_demo.sh        automated attack with sqlmap
-tools/prevention_demo.sh    vulnerable vs secure demo (Docker PHP)
-screenshots/                evidence (see checklist)
-```
+The fix is simple and decisive: parameterized queries keep the SQL code and the user data separate, so input can only ever be a value. The `secure.php` demo proves it, as the same attack that walks into `vulnerable.php` is denied. With a least-privilege database account, input validation, safe error handling and strong password hashing layered on top, SQL injection is a solved problem in code that is written this way.
 
 ---
 
 ## References
 
-- OWASP Top 10:2021, A03 Injection, https://owasp.org/Top10/A03_2021-Injection/
-- OWASP SQL Injection Prevention Cheat Sheet, https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
-- CWE-89: Improper Neutralization of Special Elements used in an SQL Command, https://cwe.mitre.org/data/definitions/89.html
-- DVWA (Damn Vulnerable Web Application), https://github.com/digininja/DVWA
-- sqlmap, https://sqlmap.org/
+- OWASP Top 10:2021, A03 Injection — https://owasp.org/Top10/A03_2021-Injection/
+- OWASP SQL Injection Prevention Cheat Sheet — https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+- CWE-89: Improper Neutralization of Special Elements used in an SQL Command — https://cwe.mitre.org/data/definitions/89.html
+- DVWA (Damn Vulnerable Web Application) — https://github.com/digininja/DVWA
+- sqlmap — https://sqlmap.org/
